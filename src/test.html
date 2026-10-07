@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PSI API & UI Pre-Flight Test</title>
+  <style>
+    body { font-family: monospace; background: #1a1a1a; color: #00ff66; padding: 20px; }
+    .card { border: 1px solid #333; padding: 15px; margin-bottom: 15px; border-radius: 6px; background: #222; }
+    button { background: #00ff66; color: #1a1a1a; font-weight: bold; padding: 8px 12px; border: none; cursor: pointer; }
+    pre { white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; color: #ddd; }
+  </style>
+</head>
+<body>
+  <h1>Agent Run Inspector — API Integration Test</h1>
+
+  <div class="card">
+    <button onclick="testSummary()">1. Test /api/run/summary</button>
+    <pre id="summary-out">Click to test summary...</pre>
+  </div>
+
+  <div class="card">
+    <button onclick="testEvents()">2. Test /api/run/events (Filter Errors)</button>
+    <pre id="events-out">Click to test event fetching...</pre>
+  </div>
+
+  <div class="card">
+    <button onclick="testStream()">3. Test /api/run/stream (SSE)</button>
+    <button onclick="stopStream()">Stop Stream</button>
+    <pre id="stream-out">Click to start streaming events...</pre>
+  </div>
+
+  <script>
+    const API_BASE = "http://localhost:8000/api/run";
+    let evtSource = null;
+
+    async function testSummary() {
+      const out = document.getElementById('summary-out');
+      try {
+        const res = await fetch(`${API_BASE}/summary`);
+        const data = await res.json();
+        out.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        out.textContent = "Error: " + err.message;
+      }
+    }
+
+    async function testEvents() {
+      const out = document.getElementById('events-out');
+      try {
+        const res = await fetch(`${API_BASE}/events?errors_only=true`);
+        const data = await res.json();
+        out.textContent = `Total Error Events: ${data.total}\nFirst Event Sample:\n` + JSON.stringify(data.events[0] || {}, null, 2);
+      } catch (err) {
+        out.textContent = "Error: " + err.message;
+      }
+    }
+
+    function testStream() {
+      const out = document.getElementById('stream-out');
+      if (evtSource) evtSource.close();
+      
+      out.textContent = "Connecting to SSE stream...\n";
+      evtSource = new EventSource(`${API_BASE}/stream?speed=0.01`);
+
+      let count = 0;
+      evtSource.onmessage = (e) => {
+        count++;
+        const eventData = JSON.parse(e.data);
+        if (count <= 10 || count % 50 === 0) {
+          out.textContent += `[Stream Event #${count}] ID: ${eventData.event_id} | Type: ${eventData.event_type} | Run: ${eventData.run_id}\n`;
+          out.scrollTop = out.scrollHeight;
+        }
+      };
+
+      evtSource.onerror = (err) => {
+        out.textContent += "\nStream ended or lost connection.";
+        evtSource.close();
+      };
+    }
+
+    function stopStream() {
+      if (evtSource) {
+        evtSource.close();
+        document.getElementById('stream-out').textContent += "\nStream manually stopped.";
+      }
+    }
+  </script>
+</body>
+</html>
