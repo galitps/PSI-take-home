@@ -1,4 +1,33 @@
 # PSI take-home
+
+## Run locally
+
+Prerequisites: Python 3.10+ and Node.js 18+.
+
+From the repository root, install the backend dependencies, generate the sample run, and start the API:
+
+```sh
+python -m pip install -r backend/requirements.txt
+python backend/generate_run.py
+python backend/server.py
+```
+
+In a second terminal, start the Vite frontend:
+
+```sh
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend is available at the local URL printed by Vite. The API reads `backend/data/demo_run.jsonl`, independent of the current working directory.
+
+## Repository layout
+
+- `backend/` contains the Python API, run generators, requirements, smoke-test page, and sample data in `backend/data/`.
+- `frontend/` contains the React + TypeScript Vite application, including the API client in `frontend/src/api.ts`.
+- `agent_transcript.txt` contains the development transcript.
+
 Assignment
 Technical Exercise — PSI
 

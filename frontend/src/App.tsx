@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchEvents, fetchRunSummary } from '../../src/frontend/api'
-import type { FilterParams, PSIAgentEvent, RunSummary } from '../../src/frontend/api'
+import { fetchEvents, fetchRunSummary } from './api'
+import type { FilterParams, PSIAgentEvent, RunSummary } from './api'
 import { FilterBar } from './FilterBar'
 import { SummaryHeader } from './SummaryHeader'
 import { DiffViewer } from './DiffViewer'
@@ -116,7 +116,13 @@ function buildRunTree(events: PSIAgentEvent[], visibleEventIds: Set<number>): Ru
     const runEvents = byRun.get(runId) || []
     runEvents.push(event)
     byRun.set(runId, runEvents)
-    if (event.parent_run_id && event.parent_run_id !== runId) parents.set(runId, event.parent_run_id)
+    if (
+      event.event_type !== 'sub_agent_spawn' &&
+      event.parent_run_id &&
+      event.parent_run_id !== runId
+    ) {
+      parents.set(runId, event.parent_run_id)
+    }
     const childId = event.payload?.child_run_id
     if (typeof childId === 'string' && childId !== runId) {
       parents.set(childId, runId)
@@ -159,28 +165,42 @@ function buildRunTree(events: PSIAgentEvent[], visibleEventIds: Set<number>): Ru
 }
 
 function RunTimeline({ node, depth = 0 }: { node: RunNode; depth?: number }) {
+  const totalTokens = node.events.reduce(
+    (total, event) => total + (event.tokens?.input || 0) + (event.tokens?.output || 0),
+    0,
+  )
+  const timestamps = node.events.map((event) => event.timestamp).filter(Boolean)
+  const wallTime = timestamps.length ? Math.max(...timestamps) - Math.min(...timestamps) : 0
+  const totalCost = node.events.reduce((total, event) => total + (event.cost || 0), 0)
+
   return (
     <section className="psi-run-branch" style={{ '--depth': depth } as React.CSSProperties}>
-      {depth > 0 ? (
-        <details className="psi-branch-details" open={depth === 1}>
-          <summary className="psi-branch-summary">
-            <span className="psi-branch-glyph" aria-hidden="true">↳</span>
-            <span className="psi-branch-name">{node.label}</span>
-            <code>{node.runId}</code>
-            <span className="psi-branch-count">{node.events.length} events</span>
-            <span className="psi-branch-cost">{formatCost(node.events.reduce((sum, event) => sum + (event.cost || 0), 0))}</span>
-          </summary>
-          <div className="psi-branch-content">
-            {node.events.map((event) => <EventDetails event={event} key={event.event_id} />)}
-            {node.children.map((child) => <RunTimeline depth={depth + 1} key={child.runId} node={child} />)}
-          </div>
-        </details>
-      ) : (
-        <>
+      <details className="psi-branch-details">
+        <summary className="psi-branch-summary">
+          <span className="psi-branch-chevron" aria-hidden="true">⌄</span>
+          <span className="psi-branch-glyph" aria-hidden="true">↳</span>
+          <span className="psi-branch-name">{node.label}</span>
+          <code>{node.runId}</code>
+          <span className="psi-branch-count">
+            {node.events.length} events in this agent · {node.children.length} direct child agents
+          </span>
+          <span className="psi-branch-metrics">
+            <span><b>Total tokens</b>{formatNumber(totalTokens)}</span>
+            <span><b>Wall time</b>{formatDuration(wallTime)}</span>
+            <span><b>Total cost</b>{formatCost(totalCost)}</span>
+          </span>
+        </summary>
+        <div className="psi-branch-content">
+          {node.events.length > 0 && (
+            <div className="psi-branch-section-label">Events emitted by this agent ({node.events.length})</div>
+          )}
           {node.events.map((event) => <EventDetails event={event} key={event.event_id} />)}
+          {node.children.length > 0 && (
+            <div className="psi-branch-section-label">Child agents spawned by this agent ({node.children.length})</div>
+          )}
           {node.children.map((child) => <RunTimeline depth={depth + 1} key={child.runId} node={child} />)}
-        </>
-      )}
+        </div>
+      </details>
     </section>
   )
 }
@@ -280,10 +300,19 @@ function App() {
         .psi-metric-sub { margin-top:4px; color:#829087; font-size:10px; }
         .psi-branches { min-width:0; padding:12px 17px; }
         .psi-branches-head { display:flex; justify-content:space-between; color:#738078; font:10px 'DM Mono',monospace; text-transform:uppercase; }
-        .psi-branch-costs { display:flex; gap:7px; overflow:auto; padding-top:9px; }
-        .psi-cost-chip { min-width:0; display:flex; align-items:center; gap:7px; padding:5px 7px; border:1px solid #dce4dc; border-radius:4px; background:#f8faf7; white-space:nowrap; }
-        .psi-cost-chip code { overflow:hidden; max-width:120px; color:#536159; text-overflow:ellipsis; font:10px 'DM Mono',monospace; }
-        .psi-cost-chip b { color:var(--green); font:600 10px 'DM Mono',monospace; }
+        .psi-branch-browser { display:grid; grid-template-columns:minmax(150px,.85fr) minmax(170px,1.15fr); gap:10px; padding-top:9px; }
+        .psi-branch-menu { display:flex; max-height:142px; min-width:0; flex-direction:column; gap:4px; overflow-y:auto; padding-right:3px; }
+        .psi-branch-option { display:flex; width:100%; min-width:0; align-items:flex-start; justify-content:space-between; gap:9px; padding:6px 8px; border:1px solid #dce4dc; border-radius:4px; background:#f8faf7; color:#536159; text-align:left; cursor:pointer; }
+        .psi-branch-option:hover,.psi-branch-option.selected { border-color:#9bb8a2; background:#eaf2e9; }
+        .psi-branch-option-label { min-width:0; color:#536159; font-size:10px; line-height:1.4; overflow-wrap:anywhere; }
+        .psi-branch-option b { flex:none; color:var(--green); font:600 10px 'DM Mono',monospace; white-space:nowrap; }
+        .psi-branch-detail { min-width:0; padding:8px 10px; border:1px solid #dce4dc; border-radius:4px; background:#f8faf7; }
+        .psi-branch-detail-heading { display:flex; justify-content:space-between; gap:8px; color:#37473d; font-size:11px; }
+        .psi-branch-detail-heading strong { overflow-wrap:anywhere; }
+        .psi-branch-detail-heading b { flex:none; color:var(--green); font:600 10px 'DM Mono',monospace; }
+        .psi-branch-detail-id { display:block; margin-top:3px; color:#7c897f; font:9px 'DM Mono',monospace; overflow-wrap:anywhere; }
+        .psi-branch-detail-stats { display:flex; flex-wrap:wrap; gap:5px 10px; margin-top:8px; color:#66746a; font:9px 'DM Mono',monospace; }
+        .psi-branch-detail-parent,.psi-branch-detail-types { margin-top:6px; color:#7c897f; font-size:9px; overflow-wrap:anywhere; }
         .psi-filterbar { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
         .psi-search { position:relative; flex:1; min-width:160px; }
         .psi-search-mark { position:absolute; top:10px; left:12px; color:#86938a; font-size:16px; pointer-events:none; }
@@ -337,19 +366,24 @@ function App() {
         .psi-event-foot { display:flex; flex-wrap:wrap; gap:16px; color:#87938a; font:10px 'DM Mono',monospace; }
         .psi-branch-details { margin-left:calc(var(--depth) * 14px); border-top:1px solid #dfe6df; background:#f9fbf8; }
         .psi-branch-summary { display:flex; align-items:center; min-height:42px; gap:9px; padding:7px 12px; cursor:pointer; list-style:none; }
+        .psi-branch-chevron { width:12px; color:#748279; font-size:13px; transition:transform .15s; }
+        details[open] > .psi-branch-summary .psi-branch-chevron { transform:rotate(180deg); }
         .psi-branch-summary:hover { background:#f1f5f0; }
         .psi-branch-glyph { color:#8b73a4; font-size:16px; }
         .psi-branch-name { color:#37473d; font-size:11px; font-weight:700; }
         .psi-branch-summary code { max-width:220px; overflow:hidden; padding:2px 5px; border-radius:3px; background:#eef2ed; color:#7c897f; text-overflow:ellipsis; font:9px 'DM Mono',monospace; }
-        .psi-branch-count,.psi-branch-cost { margin-left:auto; color:#869189; font:10px 'DM Mono',monospace; white-space:nowrap; }
-        .psi-branch-cost { min-width:64px; color:#49705a; text-align:right; }
+        .psi-branch-count { margin-left:auto; color:#869189; font:10px 'DM Mono',monospace; white-space:nowrap; }
+        .psi-branch-metrics { display:flex; align-items:center; gap:12px; margin-left:auto; }
+        .psi-branch-metrics span { display:flex; flex-direction:column; color:#49705a; text-align:right; font:10px 'DM Mono',monospace; white-space:nowrap; }
+        .psi-branch-metrics b { color:#869189; font:9px 'DM Sans',sans-serif; font-weight:500; }
         .psi-branch-content { border-top:1px solid #ebefeb; }
+        .psi-branch-section-label { padding:8px 12px; border-bottom:1px solid #ebefeb; background:#f3f6f2; color:#748279; font:10px 'DM Mono',monospace; text-transform:uppercase; }
         .psi-branch-content .psi-event { background:#fff; }
         .psi-empty,.psi-loading,.psi-error-state { padding:44px 18px; color:#7f8b82; text-align:center; font-size:12px; }
         .psi-error-state { color:#aa4036; }
         .psi-footer { display:flex; justify-content:space-between; gap:12px; margin-top:12px; color:#8b968e; font:10px 'DM Mono',monospace; }
         @media(max-width:900px) { .psi-metrics { grid-template-columns:repeat(3,minmax(100px,1fr)); } .psi-branches { grid-column:1/-1; border-top:1px solid #d8e0d8; } .psi-metric:nth-child(3) { border-right:0; } }
-        @media(max-width:620px) { .psi-topbar { height:52px; padding:0 16px; } .psi-top-right { gap:10px; font-size:10px; } .psi-page { padding:23px 12px 40px; } .psi-heading { margin-bottom:17px; } .psi-heading h1 { font-size:25px; } .psi-subtitle { max-width:250px; } .psi-metrics { grid-template-columns:repeat(3,minmax(0,1fr)); } .psi-metric { min-height:75px; padding:12px 9px; } .psi-metric-value { font-size:17px; } .psi-metric-label { font-size:9px; } .psi-branches { padding:10px; } .psi-filterbar { flex-wrap:wrap; gap:7px; } .psi-search { flex-basis:100%; } .psi-type-button,.psi-error-button { flex:1; justify-content:center; padding:0 8px; } .psi-type-button { overflow:hidden; } .psi-type-label { overflow:hidden; text-overflow:ellipsis; } .psi-list-head div { gap:10px; } .psi-event-summary { gap:8px; padding:8px; } .psi-event-meta { gap:8px; font-size:9px; } .psi-event-meta span:first-child { display:none; } .psi-event-description { max-width:220px; } .psi-event-expanded { padding-left:24px; } .psi-branch-details { margin-left:calc(var(--depth) * 8px); } .psi-branch-summary { gap:6px; padding:7px; } .psi-branch-summary code { max-width:84px; } .psi-branch-count { display:none; } }
+        @media(max-width:620px) { .psi-topbar { height:52px; padding:0 16px; } .psi-top-right { gap:10px; font-size:10px; } .psi-page { padding:23px 12px 40px; } .psi-heading { margin-bottom:17px; } .psi-heading h1 { font-size:25px; } .psi-subtitle { max-width:250px; } .psi-metrics { grid-template-columns:repeat(3,minmax(0,1fr)); } .psi-metric { min-height:75px; padding:12px 9px; } .psi-metric-value { font-size:17px; } .psi-metric-label { font-size:9px; } .psi-branches { padding:10px; } .psi-branch-browser { grid-template-columns:minmax(0,1fr); } .psi-branch-menu { max-height:130px; } .psi-filterbar { flex-wrap:wrap; gap:7px; } .psi-search { flex-basis:100%; } .psi-type-button,.psi-error-button { flex:1; justify-content:center; padding:0 8px; } .psi-type-button { overflow:hidden; } .psi-type-label { overflow:hidden; text-overflow:ellipsis; } .psi-list-head div { gap:10px; } .psi-event-summary { gap:8px; padding:8px; } .psi-event-meta { gap:8px; font-size:9px; } .psi-event-meta span:first-child { display:none; } .psi-event-description { max-width:220px; } .psi-event-expanded { padding-left:24px; } .psi-branch-details { margin-left:calc(var(--depth) * 8px); } .psi-branch-summary { flex-wrap:wrap; gap:6px; padding:7px; } .psi-branch-summary code { max-width:84px; } .psi-branch-count { display:none; } .psi-branch-metrics { flex:1 0 100%; justify-content:flex-end; gap:10px; } }
         @media(prefers-reduced-motion:reduce) { .psi-app * { scroll-behavior:auto !important; transition:none !important; } }
       `}</style>
 
@@ -371,7 +405,7 @@ function App() {
           </button>
         </div>
 
-        <SummaryHeader summary={summary} />
+        <SummaryHeader events={events} summary={summary} />
 
         <section aria-label="Filter run events">
           <FilterBar

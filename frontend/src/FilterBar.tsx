@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { FilterParams } from '../../src/frontend/api';
+import type { FilterParams } from './api';
 
 interface FilterBarProps {
   onFilterChange: (filters: FilterParams) => void;

@@ -1,4 +1,5 @@
 from schema import PSIAgent, PSIAgentEvent
+from pathlib import Path
 
 def run_agent_workflow():
     all_events = []
@@ -28,7 +29,9 @@ def run_agent_workflow():
     all_events.extend(code_worker.events)
 
     # 4. Export all run events to a JSONL file
-    with open("demo_run.jsonl", "w") as f:
+    output_path = Path(__file__).resolve().parent / "data" / "demo_run.jsonl"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as f:
         for event in all_events:
             f.write(event.to_jsonl() + "\n")
 

@@ -3,6 +3,7 @@ import time
 import random
 import uuid
 from dataclasses import dataclass, field, asdict
+from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 # ---------------------------------------------------------------------------
@@ -29,7 +30,7 @@ class PSIAgentEvent:
 # ---------------------------------------------------------------------------
 def generate_synthetic_run(
     target_event_count: int = 2500,
-    output_filename: str = "demo_run.jsonl"
+    output_filename: str | Path = Path(__file__).resolve().parent / "data" / "demo_run.jsonl"
 ) -> List[PSIAgentEvent]:
     """
     Generates 2500+ synthetic agent events simulating complex multi-agent execution,
@@ -212,13 +213,15 @@ def generate_synthetic_run(
     events.sort(key=lambda x: x.timestamp)
 
     # Write out to JSONL
-    with open(output_filename, "w", encoding="utf-8") as f:
+    output_path = Path(output_filename)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as f:
         for event in events:
             f.write(event.to_jsonl() + "\n")
 
-    print(f"✅ Created {len(events)} events written to '{output_filename}'.")
+    print(f"✅ Created {len(events)} events written to '{output_path}'.")
     return events
 
 
 if __name__ == "__main__":
-    generate_synthetic_run(target_event_count=2650, output_filename="demo_run.jsonl")
+    generate_synthetic_run(target_event_count=2650)

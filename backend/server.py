@@ -1,6 +1,6 @@
-import os
 import json
 import asyncio
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,7 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-JSONL_FILE_PATH = "demo_run.jsonl"
+JSONL_FILE_PATH = Path(__file__).resolve().parent / "data" / "demo_run.jsonl"
 
 
 # ---------------------------------------------------------------------------
@@ -27,14 +27,14 @@ JSONL_FILE_PATH = "demo_run.jsonl"
 # ---------------------------------------------------------------------------
 def load_all_events() -> List[Dict[str, Any]]:
     """Reads and parses the JSONL file from disk."""
-    if not os.path.exists(JSONL_FILE_PATH):
+    if not JSONL_FILE_PATH.is_file():
         raise HTTPException(
             status_code=404, 
             detail=f"File '{JSONL_FILE_PATH}' not found. Run your generator script first."
         )
     
     events = []
-    with open(JSONL_FILE_PATH, "r", encoding="utf-8") as f:
+    with JSONL_FILE_PATH.open("r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:
